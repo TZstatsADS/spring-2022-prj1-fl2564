@@ -1,0 +1,951 @@
+---
+title: "Whether the words used in the sentences published by different philosophy schools are affected by publish time."
+author: "Fucheng Liu"
+date: "2/1/2022"
+output: html_notebook
+---
+
+
+```{r message=FALSE, warning=FALSE,echo=FALSE}
+#load the packages
+#install.packages("tidyverse")
+#install.packages("tidytext")
+#install.packages("corrplot")
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(tm)
+library(wordcloud)
+library(tidytext)
+library(corrplot)
+```
+
+```{r}
+#read the data set
+data <- read.csv("philosophy_data.csv")
+```
+
+# A general analysis of the data set
+First, as a total beginner  of philosophy, I try to have a general knowledge of the schools, the philosophers, and also the history of philosophy.
+
+## The percentage of the amount of sentences published by each school
+Given the data set, what confused me most is the 18 listed schools in philosophy. So I tried to know more about the schools first. Below is the count of sentences published by each school:
+```{r,echo=FALSE}
+school <- unique(data$school)
+count_of_different_school <- data %>%
+  group_by(school) %>%
+  summarize(count_school = n()) %>%
+  arrange(desc(count_school))
+
+perc_of_different_school <- count_of_different_school %>%
+  mutate(sum = sum(count_school)) %>%
+  mutate(percent = count_school/sum) %>%
+  mutate(percent = paste0(format(percent*100, digits = 2), "%")) %>%
+  dplyr::select(school, count_school, percent)
+perc_of_different_school
+
+perc_of_different_school_fig <- perc_of_different_school %>%
+  ggplot(aes(x="", y=percent, fill=school))+
+  geom_bar(stat="identity")+
+  coord_polar(theta = "y")+
+  labs(x="", 
+       y="", 
+       title="The percentage of the amount of sentences 
+       published by each school")+
+  theme(axis.ticks = element_blank())+
+  theme(axis.text.x = element_blank())
+perc_of_different_school_fig
+```
+
+
+
+```{r warning=FALSE,echo=FALSE}
+## The percentage of the amount of sentences published by each philosopher
+#Then, I found that there are some schools which contains a lot of philosophers, while others have few. However, there are even more sentences published by the schools with few philosophers than those containing more philosophers, such as Aristotle and Plato. 
+#So I calculate the amount of sentences published by different authors regardless of which schools they belong to.
+#count_of_different_author_in_each_school <- data %>%
+#  group_by(school,author) %>%
+#  summarize(count_author = n()) %>%
+#  arrange(school,desc(count_author)) %>%
+#  left_join(count_of_different_school, by = 'school') %>%
+#  dplyr::select(school, author, count_author) %>%
+#  arrange(desc(count_author))
+#count_of_different_author_in_each_school
+```
+
+Knowing about the history of philosophy can always start with knowing the development of it over time. So I choose to analyze the sentences published in different time period.
+
+# Analysis of sentences published in different time period
+To start with, I choose to know about the count of sentences published by different schools from 4th Century BC to 20th Century.
+
+## Count of sentences of different schools published from 4th Century BC to the 20th Century
+```{r warning=FALSE}
+publish_date <- data %>%
+  dplyr::select(title, author, school, original_publication_date) %>%
+  group_by(original_publication_date, school) %>%
+  summarize(count = n())
+publish_date
+
+count_with_time <- publish_date %>%
+  ggplot(aes(x = original_publication_date))+
+  geom_bar(aes(y = count, fill = school), stat = "identity")+
+  labs(x = "Year", 
+       y = "Count", 
+       title = "Count of Sentences of Different Schools Published 
+       from 4th Century BC to the 20th Century")
+count_with_time
+
+```
+We can know from the figure that there are 2 major schools which published a large amount of sentences before 0th Century, which in know as a period for ancient Greek philosophy and ancient Rome philosophy, in which time period Plato and Aristotle are well-known. And from 18th Century to 21th Century, many schools of philosophy appears making philosophy developing prosperously, which may thanks to The Enlightenment.
+
+So, after consulting information, I divide the data set into 3 parts according to time period.
+
+First, denote years before 0th Century as time period 1, in which philosophy are known as Ancient Greek philosophy and Ancient Rome philosophy.
+
+Second, denote years between 0th Century and the end of 16th Century as time period 2, in which philosophy are known as Medieval philosophy.
+
+Finally denote years after 1700 AD as time period 3, in which philosophy are known as Modern philosophy.
+
+To learn about if philosophy is affected by different times, we think about three major questions:
+
+1.What questions are the philosophers thinking about at different times?
+
+2.Whether different schools in the same time period are concerning about similar questions?
+
+3.Whether philosophers in different time period think about totally different questions?
+
+## Question 1: What questions are the philosophers thinking about at different times?
+```{r}
+#sort the data set into 3 groups according to time
+publish_date_classify_1 <- data %>%
+  filter(original_publication_date < 0)
+
+publish_date_classify_2 <- data %>%
+  filter((original_publication_date > 0) &
+           (original_publication_date < 1600))
+
+publish_date_classify_3 <- data %>%
+  filter((original_publication_date > 1600))
+```
+
+To analyze the questions discussed by the philosophers, I plan to analyze the sentences published by them, which means counting the frequency of words used in the published sentences. 
+In this way, we consider a problem related to a word appearing in high frequency more commonly considered by the philosophers, while as for the words which turns up rarely, we think them irrelevant. 
+So I calculate the frequency of appearance of words in the published sentences respectively in three time period.
+
+### Wordcloud for time period 1
+```{r warning=FALSE}
+sentenceCorpus1 <- Corpus(VectorSource(publish_date_classify_1$sentence_lowered))
+sentenceCorpus1 <- tm_map(sentenceCorpus1, removeWords, stopwords(""))
+sentenceCorpus1 <- tm_map(sentenceCorpus1, removeWords, character(0))
+sentenceCorpus1 <- tm_map(sentenceCorpus1, removePunctuation)
+sentenceCorpus1 <- tm_map(sentenceCorpus1, stripWhitespace)
+term_matrix1 <- TermDocumentMatrix(sentenceCorpus1)
+term_matrix1 = removeSparseTerms(term_matrix1, 0.99)
+term_matrix1_tidy = tidytext::tidy(term_matrix1)
+term_matrix1_overall=summarise(group_by(term_matrix1_tidy, term), sum(count))
+term_matrix1_perc <- term_matrix1_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+head(term_matrix1_perc,n=10)
+
+wordcloud(term_matrix1_overall$term,term_matrix1_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+```
+It can be seen from the figure that except for the words that are used commonly in nearly all kinds of sentences such as "one", "will", "must", "also", there are others words including "man", "people", "time", "water", "animals", or "knowledge", "true", "body", "soul" appearing frequently reflecting some exact questions which were thought about.
+
+### Wordcloud for time period 2
+```{r warning=FALSE,echo=FALSE}
+#unique(publish_date_classify_2$school)
+
+sentenceCorpus2 <- Corpus(VectorSource(publish_date_classify_2$sentence_lowered))
+sentenceCorpus2 <- tm_map(sentenceCorpus2, removeWords, stopwords(""))
+sentenceCorpus2 <- tm_map(sentenceCorpus2, removeWords, character(0))
+sentenceCorpus2 <- tm_map(sentenceCorpus2, removePunctuation)
+sentenceCorpus2 <- tm_map(sentenceCorpus2, stripWhitespace)
+term_matrix2 <- TermDocumentMatrix(sentenceCorpus2)
+term_matrix2 = removeSparseTerms(term_matrix2, 0.99)
+term_matrix2_tidy = tidytext::tidy(term_matrix2)
+term_matrix2_overall=summarise(group_by(term_matrix2_tidy, term), sum(count))
+term_matrix2_perc <- term_matrix2_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+head(term_matrix2_perc,n=10)
+
+wordcloud(term_matrix2_overall$term,term_matrix2_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+```
+In this time period, what interests me most is the high frequency of appearance of the words "women", and also "women", which turns up even more often than words "one", "will", or "can". Besides, except for the words we've seen in the last picture, words such as "love", "children", "female", "husband" appears more common.
+
+### Wordcloud for time period 3
+```{r warning=FALSE,echo=FALSE}
+sentenceCorpus3 <- Corpus(VectorSource(publish_date_classify_3$sentence_lowered))
+sentenceCorpus3 <- tm_map(sentenceCorpus3, removeWords, stopwords(""))
+sentenceCorpus3 <- tm_map(sentenceCorpus3, removeWords, character(0))
+sentenceCorpus3 <- tm_map(sentenceCorpus3, removePunctuation)
+sentenceCorpus3 <- tm_map(sentenceCorpus3, stripWhitespace)
+term_matrix3 <- TermDocumentMatrix(sentenceCorpus3)
+term_matrix3 = removeSparseTerms(term_matrix3, 0.99)
+term_matrix3_tidy = tidytext::tidy(term_matrix3)
+term_matrix3_overall=summarise(group_by(term_matrix3_tidy, term), sum(count))
+term_matrix3_perc <- term_matrix3_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+head(term_matrix3_perc,n=10)
+
+wordcloud(term_matrix3_overall$term,term_matrix3_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+```
+At this time, we can see that in stead of only several words turning up frequently while others rarely appearing, more words began to be used in the sentences, which means that more kinds of questions began to be discussed by philosophers at the same time. And the words "nature", "reason", "world", "consciousness", "labour", "law", "order", "concept", "god", "language" and also "system" prove that.
+
+## Question 2: Whether different schools in the same time period are concerning about similar questions?
+To measure the similarity of the questions concerned about by two different schools, I choose to measure the similarity of the words used in the published sentences by the schools.
+And to measure the similarity of the words used between two schools, I calculate Jaccard Index which is defined as the size of the intersection divided by the size of the union of the sample sets.
+```{r}
+##function for calculating Jaccard Index between two data set
+# the size of intersection
+size_intersection <- function(A,B){
+  X <- A %>%
+    inner_join(B, by = c("term" = "term"))
+  nrow(X)
+}
+
+# the size of union
+size_union <- function(A,B){
+  X <-A %>%
+    full_join(B, by = c("term" = "term"))
+  nrow(X)
+}
+
+#Jaccard Index
+JI <- function(A,B){
+  size_intersection(A,B)/size_union(A,B)
+}
+```
+
+Moreover, to seize the major questions discussed by the philosophers, I choose the words which appears in the sentences published by one school at the percentage over 0.5% as the samples, depending on which we calculate the Jaccard Index.
+
+### Time period 1
+First, we have a quick look of the percentage of the amount of sentences published by different schools in time period 1.
+
+#### Percentage of the amount of sentences published by different schools in time period 1
+```{r, echo=FALSE}
+count_of_different_school_1 <- publish_date_classify_1 %>%
+  group_by(school) %>%
+  summarize(count_school = n()) %>%
+  arrange(desc(count_school))
+
+perc_of_different_school_1 <- count_of_different_school_1 %>%
+  mutate(sum = sum(count_school)) %>%
+  mutate(percent = count_school/sum) %>%
+  mutate(percent = paste0(format(percent*100, digits = 2), "%")) %>%
+  dplyr::select(school, count_school, percent)
+perc_of_different_school_1
+
+perc_of_different_school_fig_1 <- perc_of_different_school_1 %>%
+  ggplot(aes(x="", y=percent, fill=school))+
+  geom_bar(stat="identity")+
+  coord_polar(theta = "y")+
+  labs(x="", 
+       y="", 
+       title="The percentage of the amount of sentences published 
+       by each school in time period 1")+
+  theme(axis.ticks = element_blank())+
+  theme(axis.text.x = element_blank())
+perc_of_different_school_fig_1
+```
+We can see there are three major schools including Aristotle, Daoism and Plato at this time.
+
+Then, let's check the words used respectively in the 3 schools. 
+
+#### Words used respectively in the 3 schools in time period 1
+
+##### Aristotle
+```{r warning=FALSE,echo=FALSE}
+aristotle <- publish_date_classify_1 %>%
+  filter(school == "aristotle")
+
+sentenceCorpus_aristotle <- Corpus(VectorSource(aristotle$sentence_lowered))
+sentenceCorpus_aristotle <- tm_map(sentenceCorpus_aristotle, removeWords, stopwords(""))
+sentenceCorpus_aristotle <- tm_map(sentenceCorpus_aristotle, removeWords, character(0))
+sentenceCorpus_aristotle <- tm_map(sentenceCorpus_aristotle, removePunctuation)
+sentenceCorpus_aristotle <- tm_map(sentenceCorpus_aristotle, stripWhitespace)
+term_matrix_aristotle <- TermDocumentMatrix(sentenceCorpus_aristotle)
+term_matrix_aristotle = removeSparseTerms(term_matrix_aristotle, 0.99)
+term_matrix_aristotle_tidy = tidytext::tidy(term_matrix_aristotle)
+term_matrix_aristotle_overall = summarise(group_by(term_matrix_aristotle_tidy, term), sum(count))
+
+wordcloud(term_matrix_aristotle_overall$term,term_matrix_aristotle_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_aristotle_perc <- term_matrix_aristotle_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+
+sample_aristotle <- term_matrix_aristotle_perc %>%
+  filter(perc >= 0.005)
+head(sample_aristotle,n=10)
+```
+##### Plato
+```{r warning=FALSE,echo=FALSE}
+plato <- publish_date_classify_1 %>%
+  filter(school == "plato")
+
+sentenceCorpus_plato <- Corpus(VectorSource(plato$sentence_lowered))
+sentenceCorpus_plato <- tm_map(sentenceCorpus_plato, removeWords, stopwords(""))
+sentenceCorpus_plato <- tm_map(sentenceCorpus_plato, removeWords, character(0))
+sentenceCorpus_plato <- tm_map(sentenceCorpus_plato, removePunctuation)
+sentenceCorpus_plato <- tm_map(sentenceCorpus_plato, stripWhitespace)
+term_matrix_plato <- TermDocumentMatrix(sentenceCorpus_plato)
+term_matrix_plato = removeSparseTerms(term_matrix_plato, 0.99)
+term_matrix_plato_tidy = tidytext::tidy(term_matrix_plato)
+term_matrix_plato_overall = summarise(group_by(term_matrix_plato_tidy, term), sum(count))
+#term_matrix_plato_overall
+
+wordcloud(term_matrix_plato_overall$term,term_matrix_plato_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_plato_perc <- term_matrix_plato_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+
+sample_plato <- term_matrix_plato_perc %>%
+  filter(perc >= 0.005)
+head(sample_plato, n=10)
+```
+
+##### Daoism
+```{r warning=FALSE,echo=FALSE}
+daoism <- data %>%
+  filter(school == "Daoism")
+
+sentenceCorpus_daoism <- Corpus(VectorSource(daoism$sentence_str))
+sentenceCorpus_daoism <- tm_map(sentenceCorpus_daoism, removeWords, stopwords(""))
+sentenceCorpus_daoism <- tm_map(sentenceCorpus_daoism, removeWords, character(0))
+sentenceCorpus_daoism <- tm_map(sentenceCorpus_daoism, removePunctuation)
+sentenceCorpus_daoism <- tm_map(sentenceCorpus_daoism, stripWhitespace)
+term_matrix_daoism <- TermDocumentMatrix(sentenceCorpus_daoism)
+term_matrix_daoism = removeSparseTerms(term_matrix_daoism, 0.99)
+term_matrix_daoism_tidy = tidytext::tidy(term_matrix_daoism)
+term_matrix_daoism_overall = summarise(group_by(term_matrix_daoism_tidy, term), sum(count))
+#term_matrix_daoism_overall
+
+wordcloud(term_matrix_daoism_overall$term,term_matrix_daoism_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_daoism_perc <- term_matrix_daoism_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_daoism_perc
+
+sample_daoism <- term_matrix_daoism_perc %>%
+  filter(perc >= 0.005)
+head(sample_daoism, n=10)
+```
+We can see that there are more different words used in Daoism such as "tzu" or "tao", and this is because Daoism origins in China, and the sentences are always like "Tzu said...".
+
+##### Comparision between the schools in time period 1
+We calculate Jaccard Index and have the results:
+```{r,echo=FALSE}
+time_period_1 <- list(aristotle = sample_aristotle,
+                      plato = sample_plato,
+                      daoism = sample_daoism)
+JI1 <- array(0, dim = c(3,3))
+for(i in 1:3){
+  for(j in 1:3){
+  JI1[i,j] = JI(time_period_1[[i]],time_period_1[[j]])
+  }
+}
+colnames(JI1) <- c("aristotle","plato","daoism")
+rownames(JI1) <- c("aristotle","plato","daoism")
+JI1
+
+corrplot(JI1, diag = FALSE)
+
+```
+We can see that Aristotle and Plato have larger Jaccard Index, while Daoism is less similar to both of them. This can be easily understood because Plato is Aristotle's teacher and Plato philosophy and Aristotle philosophy have the same origin even though they have different thoughts. However, Daoism comes from a totally different culture.
+
+### Time period 2
+Same as what we did in the previous step, we first check the percentage of the amount of sentences published by different schools in this time period.
+
+#### Percentage of the amount of sentences published by different schools in time period 2
+```{r,echo=FALSE}
+count_of_different_school_2 <- publish_date_classify_2 %>%
+  group_by(school) %>%
+  summarize(count_school = n()) %>%
+  arrange(desc(count_school))
+
+perc_of_different_school_2 <- count_of_different_school_2 %>%
+  mutate(sum = sum(count_school)) %>%
+  mutate(percent = count_school/sum) %>%
+  mutate(percent = paste0(format(percent*100, digits = 2), "%")) %>%
+  dplyr::select(school, count_school, percent)
+perc_of_different_school_2
+
+perc_of_different_school_fig_2 <- perc_of_different_school_2 %>%
+  ggplot(aes(x="", y=percent, fill=school))+
+  geom_bar(stat="identity")+
+  coord_polar(theta = "y")+
+  labs(x="", 
+       y="", 
+       title="The percentage of the amount of sentences published 
+       by each school in time period 2")+
+  theme(axis.ticks = element_blank())+
+  theme(axis.text.x = element_blank())
+perc_of_different_school_fig_2
+```
+We can see that there are only two majoy philosophy schools at this time: Scholasticism and Stoicism.
+
+Next, check the words used respectively in the 2 schools.
+
+
+#### Words used in the 2 schools in time period 2
+
+##### Scholasticism
+```{r warning=FALSE,echo=FALSE}
+scholasticism <- publish_date_classify_2 %>%
+  filter(school == "scholasticism")
+
+sentenceCorpus_scholasticism <- Corpus(VectorSource(scholasticism$sentence_lowered))
+sentenceCorpus_scholasticism <- tm_map(sentenceCorpus_scholasticism, removeWords, stopwords(""))
+sentenceCorpus_scholasticism <- tm_map(sentenceCorpus_scholasticism, removeWords, character(0))
+sentenceCorpus_scholasticism <- tm_map(sentenceCorpus_scholasticism, removePunctuation)
+sentenceCorpus_scholasticism <- tm_map(sentenceCorpus_scholasticism, stripWhitespace)
+term_matrix_scholasticism <- TermDocumentMatrix(sentenceCorpus_scholasticism)
+term_matrix_scholasticism = removeSparseTerms(term_matrix_scholasticism, 0.99)
+term_matrix_scholasticism_tidy = tidytext::tidy(term_matrix_scholasticism)
+term_matrix_scholasticism_overall = summarise(group_by(term_matrix_scholasticism_tidy, term), sum(count))
+#term_matrix_scholasticism_overall
+
+wordcloud(term_matrix_scholasticism_overall$term,term_matrix_scholasticism_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_scholasticism_perc <- term_matrix_scholasticism_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_scholasticism_perc
+
+sample_scholasticism <- term_matrix_scholasticism_perc %>%
+  filter(perc >= 0.005)
+head(sample_scholasticism,n=10)
+```
+
+##### Stoicism
+```{r warning=FALSE,echo=FALSE}
+stoicism <- publish_date_classify_2 %>%
+  filter(school == "stoicism")
+
+sentenceCorpus_stoicism <- Corpus(VectorSource(stoicism$sentence_lowered))
+sentenceCorpus_stoicism <- tm_map(sentenceCorpus_stoicism, removeWords, stopwords(""))
+sentenceCorpus_stoicism <- tm_map(sentenceCorpus_stoicism, removeWords, character(0))
+sentenceCorpus_stoicism <- tm_map(sentenceCorpus_stoicism, removePunctuation)
+sentenceCorpus_stoicism <- tm_map(sentenceCorpus_stoicism, stripWhitespace)
+term_matrix_stoicism <- TermDocumentMatrix(sentenceCorpus_stoicism)
+term_matrix_stoicism = removeSparseTerms(term_matrix_stoicism, 0.99)
+term_matrix_stoicism_tidy = tidytext::tidy(term_matrix_stoicism)
+term_matrix_stoicism_overall = summarise(group_by(term_matrix_stoicism_tidy, term), sum(count))
+#term_matrix_stoicism_overall
+
+wordcloud(term_matrix_stoicism_overall$term,term_matrix_stoicism_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_stoicism_perc <- term_matrix_stoicism_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_stoicism_perc
+
+sample_stoicism <- term_matrix_stoicism_perc %>%
+  filter(perc >= 0.005)
+head(sample_stoicism,n=10)
+```
+
+##### Comparision between the schools in time period 2
+```{r,echo=FALSE}
+#comparision between Scholasticism and Stoicism
+time_period_2 <- list(scholasticism = sample_scholasticism,
+                      stoicism = sample_stoicism)
+JI2 <- array(0, dim = c(2,2))
+for(i in 1:2){
+  for(j in 1:2){
+  JI2[i,j] = JI(time_period_2[[i]],time_period_2[[j]])
+  }
+}
+colnames(JI2) <- c("scholasticism","stoicism")
+rownames(JI2) <- c("scholasticism","stoicism")
+JI2
+
+corrplot(JI2, diag = FALSE)
+```
+It can be seen that the Jaccard Index between two schools is 0.23.
+
+### Time period 3
+Same as what we did in the previous step, we first check the percentage of the amount of sentences published by different schools in this time period.
+
+#### Percentage of the amount of sentences published by different schools in time period 3
+```{r warning=FALSE, echo=FALSE}
+count_of_different_school_3 <- publish_date_classify_3 %>%
+  group_by(school) %>%
+  summarize(count_school = n()) %>%
+  arrange(desc(count_school))
+
+perc_of_different_school_3 <- count_of_different_school_3 %>%
+  mutate(sum = sum(count_school)) %>%
+  mutate(percent = count_school/sum) %>%
+  mutate(percent = paste0(format(percent*100, digits = 2), "%")) %>%
+  dplyr::select(school, count_school, percent)
+perc_of_different_school_3
+
+perc_of_different_school_fig_3 <- perc_of_different_school_3 %>%
+  ggplot(aes(x="", y=percent, fill=school))+
+  geom_bar(stat="identity")+
+  coord_polar(theta = "y")+
+  labs(x="", 
+       y="", 
+       title="The percentage of the amount of sentences published by 
+       each school in time period 3")+
+  theme(axis.ticks = element_blank())+
+  theme(axis.text.x = element_blank())
+perc_of_different_school_fig_3
+```
+As is shown, the amount of schools living in this time period reaches 13.
+And we check the words used by them and calculate the Jaccard Index to derive the similarity.
+
+#### Words used in the 13 schools in time period 3
+
+##### Analytic
+```{r warning=FALSE,echo=FALSE}
+analytic <- publish_date_classify_3 %>%
+  filter(school == "analytic")
+
+sentenceCorpus_analytic <- Corpus(VectorSource(analytic$sentence_lowered))
+sentenceCorpus_analytic <- tm_map(sentenceCorpus_analytic, removeWords, stopwords(""))
+sentenceCorpus_analytic <- tm_map(sentenceCorpus_analytic, removeWords, character(0))
+sentenceCorpus_analytic <- tm_map(sentenceCorpus_analytic, removePunctuation)
+sentenceCorpus_analytic <- tm_map(sentenceCorpus_analytic, stripWhitespace)
+term_matrix_analytic <- TermDocumentMatrix(sentenceCorpus_analytic)
+term_matrix_analytic = removeSparseTerms(term_matrix_analytic, 0.99)
+term_matrix_analytic_tidy = tidytext::tidy(term_matrix_analytic)
+term_matrix_analytic_overall = summarise(group_by(term_matrix_analytic_tidy, term), sum(count))
+#term_matrix_analytic_overall
+
+#wordcloud(term_matrix_analytic_overall$term,term_matrix_analytic_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_analytic_perc <- term_matrix_analytic_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_analytic_perc
+
+sample_analytic <- term_matrix_analytic_perc %>%
+  filter(perc >= 0.005)
+head(sample_analytic,n=10)
+```
+##### Capitalism
+```{r warning=FALSE,echo=FALSE}
+capitalism <- publish_date_classify_3 %>%
+  filter(school == "capitalism")
+
+sentenceCorpus_capitalism <- Corpus(VectorSource(capitalism$sentence_lowered))
+sentenceCorpus_capitalism <- tm_map(sentenceCorpus_capitalism, removeWords, stopwords(""))
+sentenceCorpus_capitalism <- tm_map(sentenceCorpus_capitalism, removeWords, character(0))
+sentenceCorpus_capitalism <- tm_map(sentenceCorpus_capitalism, removePunctuation)
+sentenceCorpus_capitalism <- tm_map(sentenceCorpus_capitalism, stripWhitespace)
+term_matrix_capitalism <- TermDocumentMatrix(sentenceCorpus_capitalism)
+term_matrix_capitalism = removeSparseTerms(term_matrix_capitalism, 0.99)
+term_matrix_capitalism_tidy = tidytext::tidy(term_matrix_capitalism)
+term_matrix_capitalism_overall = summarise(group_by(term_matrix_capitalism_tidy, term), sum(count))
+#term_matrix_capitalism_overall
+
+#wordcloud(term_matrix_capitalism_overall$term,term_matrix_capitalism_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_capitalism_perc <- term_matrix_capitalism_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_capitalism_perc
+
+sample_capitalism <- term_matrix_capitalism_perc %>%
+  filter(perc >= 0.005)
+head(sample_capitalism,n=10)
+```
+##### Empiricism
+```{r warning=FALSE,echo=FALSE}
+empiricism <- publish_date_classify_3 %>%
+  filter(school == "empiricism")
+
+sentenceCorpus_empiricism <- Corpus(VectorSource(empiricism$sentence_lowered))
+sentenceCorpus_empiricism <- tm_map(sentenceCorpus_empiricism, removeWords, stopwords(""))
+sentenceCorpus_empiricism <- tm_map(sentenceCorpus_empiricism, removeWords, character(0))
+sentenceCorpus_empiricism <- tm_map(sentenceCorpus_empiricism, removePunctuation)
+sentenceCorpus_empiricism <- tm_map(sentenceCorpus_empiricism, stripWhitespace)
+term_matrix_empiricism <- TermDocumentMatrix(sentenceCorpus_empiricism)
+term_matrix_empiricism = removeSparseTerms(term_matrix_empiricism, 0.99)
+term_matrix_empiricism_tidy = tidytext::tidy(term_matrix_empiricism)
+term_matrix_empiricism_overall = summarise(group_by(term_matrix_empiricism_tidy, term), sum(count))
+#term_matrix_empiricism_overall
+
+#wordcloud(term_matrix_empiricism_overall$term,term_matrix_empiricism_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_empiricism_perc <- term_matrix_empiricism_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_empiricism_perc
+
+sample_empiricism <- term_matrix_empiricism_perc %>%
+  filter(perc >= 0.005)
+head(sample_empiricism,n=10)
+```
+
+##### Rationalism
+```{r warning=FALSE,echo=FALSE}
+rationalism <- publish_date_classify_3 %>%
+  filter(school == "rationalism")
+
+sentenceCorpus_rationalism <- Corpus(VectorSource(rationalism$sentence_lowered))
+sentenceCorpus_rationalism <- tm_map(sentenceCorpus_rationalism, removeWords, stopwords(""))
+sentenceCorpus_rationalism <- tm_map(sentenceCorpus_rationalism, removeWords, character(0))
+sentenceCorpus_rationalism <- tm_map(sentenceCorpus_rationalism, removePunctuation)
+sentenceCorpus_rationalism <- tm_map(sentenceCorpus_rationalism, stripWhitespace)
+term_matrix_rationalism <- TermDocumentMatrix(sentenceCorpus_rationalism)
+term_matrix_rationalism = removeSparseTerms(term_matrix_rationalism, 0.99)
+term_matrix_rationalism_tidy = tidytext::tidy(term_matrix_rationalism)
+term_matrix_rationalism_overall = summarise(group_by(term_matrix_rationalism_tidy, term), sum(count))
+#term_matrix_rationalism_overall
+
+#wordcloud(term_matrix_rationalism_overall$term,term_matrix_rationalism_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_rationalism_perc <- term_matrix_rationalism_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_rationalism_perc
+
+sample_rationalism <- term_matrix_rationalism_perc %>%
+  filter(perc >= 0.005)
+head(sample_rationalism,n=10)
+```
+
+##### Continental
+```{r warning=FALSE,echo=FALSE}
+continental <- publish_date_classify_3 %>%
+  filter(school == "continental")
+
+sentenceCorpus_continental <- Corpus(VectorSource(continental$sentence_lowered))
+sentenceCorpus_continental <- tm_map(sentenceCorpus_continental, removeWords, stopwords(""))
+sentenceCorpus_continental <- tm_map(sentenceCorpus_continental, removeWords, character(0))
+sentenceCorpus_continental <- tm_map(sentenceCorpus_continental, removePunctuation)
+sentenceCorpus_continental <- tm_map(sentenceCorpus_continental, stripWhitespace)
+term_matrix_continental <- TermDocumentMatrix(sentenceCorpus_continental)
+term_matrix_continental = removeSparseTerms(term_matrix_continental, 0.99)
+term_matrix_continental_tidy = tidytext::tidy(term_matrix_continental)
+term_matrix_continental_overall = summarise(group_by(term_matrix_continental_tidy, term), sum(count))
+#term_matrix_continental_overall
+
+#wordcloud(term_matrix_continental_overall$term,term_matrix_continental_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_continental_perc <- term_matrix_continental_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_continental_perc
+
+sample_continental <- term_matrix_continental_perc %>%
+  filter(perc >= 0.005)
+head(sample_continental, n=10)
+```
+
+##### German_idealism
+```{r warning=FALSE,echo=FALSE}
+german_idealism <- publish_date_classify_3 %>%
+  filter(school == "german_idealism")
+
+sentenceCorpus_german_idealism <- Corpus(VectorSource(german_idealism$sentence_lowered))
+sentenceCorpus_german_idealism <- tm_map(sentenceCorpus_german_idealism, removeWords, stopwords(""))
+sentenceCorpus_german_idealism <- tm_map(sentenceCorpus_german_idealism, removeWords, character(0))
+sentenceCorpus_german_idealism <- tm_map(sentenceCorpus_german_idealism, removePunctuation)
+sentenceCorpus_german_idealism <- tm_map(sentenceCorpus_german_idealism, stripWhitespace)
+term_matrix_german_idealism <- TermDocumentMatrix(sentenceCorpus_german_idealism)
+term_matrix_german_idealism = removeSparseTerms(term_matrix_german_idealism, 0.99)
+term_matrix_german_idealism_tidy = tidytext::tidy(term_matrix_german_idealism)
+term_matrix_german_idealism_overall = summarise(group_by(term_matrix_german_idealism_tidy, term), sum(count))
+#term_matrix_german_idealism_overall
+
+#wordcloud(term_matrix_german_idealism_overall$term,term_matrix_german_idealism_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_german_idealism_perc <- term_matrix_german_idealism_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_german_idealism_perc
+
+sample_german_idealism <- term_matrix_german_idealism_perc %>%
+  filter(perc >= 0.005)
+head(sample_german_idealism,n=10)
+```
+
+##### Phenomenology
+```{r warning=FALSE,echo=FALSE}
+phenomenology <- publish_date_classify_3 %>%
+  filter(school == "phenomenology")
+
+sentenceCorpus_phenomenology <- Corpus(VectorSource(phenomenology$sentence_lowered))
+sentenceCorpus_phenomenology <- tm_map(sentenceCorpus_phenomenology, removeWords, stopwords(""))
+sentenceCorpus_phenomenology <- tm_map(sentenceCorpus_phenomenology, removeWords, character(0))
+sentenceCorpus_phenomenology <- tm_map(sentenceCorpus_phenomenology, removePunctuation)
+sentenceCorpus_phenomenology <- tm_map(sentenceCorpus_phenomenology, stripWhitespace)
+term_matrix_phenomenology <- TermDocumentMatrix(sentenceCorpus_phenomenology)
+term_matrix_phenomenology = removeSparseTerms(term_matrix_phenomenology, 0.99)
+term_matrix_phenomenology_tidy = tidytext::tidy(term_matrix_phenomenology)
+term_matrix_phenomenology_overall = summarise(group_by(term_matrix_phenomenology_tidy, term), sum(count))
+#term_matrix_phenomenology_overall
+
+#wordcloud(term_matrix_phenomenology_overall$term,term_matrix_phenomenology_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_phenomenology_perc <- term_matrix_phenomenology_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_phenomenology_perc
+
+sample_phenomenology <- term_matrix_phenomenology_perc %>%
+  filter(perc >= 0.005)
+head(sample_phenomenology,n=10)
+```
+
+##### Communism
+```{r warning=FALSE,echo=FALSE}
+communism <- publish_date_classify_3 %>%
+  filter(school == "communism")
+
+sentenceCorpus_communism <- Corpus(VectorSource(communism$sentence_lowered))
+sentenceCorpus_communism <- tm_map(sentenceCorpus_communism, removeWords, stopwords(""))
+sentenceCorpus_communism <- tm_map(sentenceCorpus_communism, removeWords, character(0))
+sentenceCorpus_communism <- tm_map(sentenceCorpus_communism, removePunctuation)
+sentenceCorpus_communism <- tm_map(sentenceCorpus_communism, stripWhitespace)
+term_matrix_communism <- TermDocumentMatrix(sentenceCorpus_communism)
+term_matrix_communism = removeSparseTerms(term_matrix_communism, 0.99)
+term_matrix_communism_tidy = tidytext::tidy(term_matrix_communism)
+term_matrix_communism_overall = summarise(group_by(term_matrix_communism_tidy, term), sum(count))
+#term_matrix_communism_overall
+
+#wordcloud(term_matrix_communism_overall$term,term_matrix_communism_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_communism_perc <- term_matrix_communism_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_communism_perc
+
+sample_communism <- term_matrix_communism_perc %>%
+  filter(perc >= 0.005)
+head(sample_communism,n=10)
+```
+
+##### Nietzsche
+```{r warning=FALSE,echo=FALSE}
+nietzsche <- publish_date_classify_3 %>%
+  filter(school == "nietzsche")
+
+sentenceCorpus_nietzsche <- Corpus(VectorSource(nietzsche$sentence_lowered))
+sentenceCorpus_nietzsche <- tm_map(sentenceCorpus_nietzsche, removeWords, stopwords(""))
+sentenceCorpus_nietzsche <- tm_map(sentenceCorpus_nietzsche, removeWords, character(0))
+sentenceCorpus_nietzsche <- tm_map(sentenceCorpus_nietzsche, removePunctuation)
+sentenceCorpus_nietzsche <- tm_map(sentenceCorpus_nietzsche, stripWhitespace)
+term_matrix_nietzsche <- TermDocumentMatrix(sentenceCorpus_nietzsche)
+term_matrix_nietzsche = removeSparseTerms(term_matrix_nietzsche, 0.99)
+term_matrix_nietzsche_tidy = tidytext::tidy(term_matrix_nietzsche)
+term_matrix_nietzsche_overall = summarise(group_by(term_matrix_nietzsche_tidy, term), sum(count))
+#term_matrix_nietzsche_overall
+
+#wordcloud(term_matrix_nietzsche_overall$term,term_matrix_nietzsche_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_nietzsche_perc <- term_matrix_nietzsche_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_nietzsche_perc
+
+sample_nietzsche <- term_matrix_nietzsche_perc %>%
+  filter(perc >= 0.005)
+head(sample_nietzsche,n=10)
+```
+
+##### Feminism
+```{r warning=FALSE,echo=FALSE}
+feminism <- publish_date_classify_3 %>%
+  filter(school == "feminism")
+
+sentenceCorpus_feminism <- Corpus(VectorSource(feminism$sentence_lowered))
+sentenceCorpus_feminism <- tm_map(sentenceCorpus_feminism, removeWords, stopwords("english"))
+sentenceCorpus_feminism <- tm_map(sentenceCorpus_feminism, removeWords, character(0))
+sentenceCorpus_feminism <- tm_map(sentenceCorpus_feminism, removePunctuation)
+sentenceCorpus_feminism <- tm_map(sentenceCorpus_feminism, stripWhitespace)
+term_matrix_feminism <- TermDocumentMatrix(sentenceCorpus_feminism)
+term_matrix_feminism = removeSparseTerms(term_matrix_feminism, 0.99)
+term_matrix_feminism_tidy = tidytext::tidy(term_matrix_feminism)
+term_matrix_feminism_overall = summarise(group_by(term_matrix_feminism_tidy, term), sum(count))
+#term_matrix_feminism_overall
+
+#wordcloud(term_matrix_feminism_overall$term,term_matrix_feminism_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_feminism_perc <- term_matrix_feminism_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_feminism_perc
+
+sample_feminism <- term_matrix_feminism_perc %>%
+  filter(perc >= 0.005)
+head(sample_feminism,n=10)
+```
+
+##### Hobbes
+```{r warning=FALSE,echo=FALSE}
+hobbes <- publish_date_classify_3 %>%
+  filter(school == "Hobbes")
+
+sentenceCorpus_hobbes <- Corpus(VectorSource(hobbes$sentence_str))
+sentenceCorpus_hobbes <- tm_map(sentenceCorpus_hobbes, removeWords, stopwords("english"))
+sentenceCorpus_hobbes <- tm_map(sentenceCorpus_hobbes, removeWords, character(0))
+sentenceCorpus_hobbes <- tm_map(sentenceCorpus_hobbes, removePunctuation)
+sentenceCorpus_hobbes <- tm_map(sentenceCorpus_hobbes, stripWhitespace)
+term_matrix_hobbes <- TermDocumentMatrix(sentenceCorpus_hobbes)
+term_matrix_hobbes = removeSparseTerms(term_matrix_hobbes, 0.99)
+term_matrix_hobbes_tidy = tidytext::tidy(term_matrix_hobbes)
+term_matrix_hobbes_overall = summarise(group_by(term_matrix_hobbes_tidy, term), sum(count))
+#term_matrix_hobbes_overall
+
+#wordcloud(term_matrix_hobbes_overall$term,term_matrix_hobbes_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_hobbes_perc <- term_matrix_hobbes_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_hobbes_perc
+
+sample_hobbes <- term_matrix_hobbes_perc %>%
+  filter(perc >= 0.005)
+head(sample_hobbes, n=10)
+```
+
+##### Kierkegaard
+```{r warning=FALSE,echo=FALSE}
+kierkegaard <- publish_date_classify_3 %>%
+  filter(school == "Kierkegaard")
+
+sentenceCorpus_kierkegaard <- Corpus(VectorSource(kierkegaard$sentence_str))
+sentenceCorpus_kierkegaard <- tm_map(sentenceCorpus_kierkegaard, removeWords, stopwords("english"))
+sentenceCorpus_kierkegaard <- tm_map(sentenceCorpus_kierkegaard, removeWords, character(0))
+sentenceCorpus_kierkegaard <- tm_map(sentenceCorpus_kierkegaard, removePunctuation)
+sentenceCorpus_kierkegaard <- tm_map(sentenceCorpus_kierkegaard, stripWhitespace)
+term_matrix_kierkegaard <- TermDocumentMatrix(sentenceCorpus_kierkegaard)
+term_matrix_kierkegaard = removeSparseTerms(term_matrix_kierkegaard, 0.99)
+term_matrix_kierkegaard_tidy = tidytext::tidy(term_matrix_kierkegaard)
+term_matrix_kierkegaard_overall = summarise(group_by(term_matrix_kierkegaard_tidy, term), sum(count))
+#term_matrix_kierkegaard_overall
+
+#wordcloud(term_matrix_kierkegaard_overall$term,term_matrix_kierkegaard_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_kierkegaard_perc <- term_matrix_kierkegaard_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_kierkegaard_perc
+
+sample_kierkegaard <- term_matrix_kierkegaard_perc %>%
+  filter(perc >= 0.005)
+head(sample_kierkegaard,n=10)
+```
+
+##### Existentialism
+```{r warning=FALSE,echo=FALSE}
+existentialism <- publish_date_classify_3 %>%
+  filter(school == "Existentialism")
+
+sentenceCorpus_existentialism <- Corpus(VectorSource(existentialism$sentence_str))
+sentenceCorpus_existentialism <- tm_map(sentenceCorpus_existentialism, removeWords, stopwords("english"))
+sentenceCorpus_existentialism <- tm_map(sentenceCorpus_existentialism, removeWords, character(0))
+sentenceCorpus_existentialism <- tm_map(sentenceCorpus_existentialism, removePunctuation)
+sentenceCorpus_existentialism <- tm_map(sentenceCorpus_existentialism, stripWhitespace)
+term_matrix_existentialism <- TermDocumentMatrix(sentenceCorpus_existentialism)
+term_matrix_existentialism = removeSparseTerms(term_matrix_existentialism, 0.99)
+term_matrix_existentialism_tidy = tidytext::tidy(term_matrix_existentialism)
+term_matrix_existentialism_overall = summarise(group_by(term_matrix_existentialism_tidy, term), sum(count))
+#term_matrix_existentialism_overall
+
+#wordcloud(term_matrix_existentialism_overall$term,term_matrix_existentialism_overall$`sum(count)`,min.freq=9.5,col=brewer.pal(8,"Dark2"),rot.per=0.3)
+
+term_matrix_existentialism_perc <- term_matrix_existentialism_overall %>%
+  mutate(perc = `sum(count)`/sum(`sum(count)`)) %>%
+  arrange(desc(perc))
+#term_matrix_existentialism_perc
+
+sample_existentialism <- term_matrix_existentialism_perc %>%
+  filter(perc >= 0.005)
+head(sample_existentialism,n=10)
+```
+
+##### Comparision between the schools in time period 3
+We calculate Jaccard Index and have the results:
+```{r,echo=FALSE}
+time_period_3 <- list(empiricism = sample_empiricism,
+                      rationalism = sample_rationalism,
+                      analytic = sample_analytic,
+                      continental = sample_continental,
+                      phenomenology = sample_phenomenology,
+                      german_idealism = sample_german_idealism,
+                      communism = sample_communism,
+                      capitalism = sample_capitalism,
+                      nietzsche = sample_nietzsche,
+                      feminism = sample_feminism,      
+                      kierkegaard = sample_kierkegaard,
+                      hobbes = sample_hobbes,
+                      existentialism = sample_existentialism)
+JI3 <- array(0, dim = c(13,13))
+for(i in 1:13){
+  for(j in 1:13){
+  JI3[i,j] = JI(time_period_3[[i]],time_period_3[[j]])
+  }
+}
+colnames(JI3) <- c("empiricism","rationalism","analytic",
+                          "continental","phenomenology","german_idealism",
+                          "communism","capitalism","nietzsche",
+                          "feminism","kierkegaard","hobbes","existentialism"
+                          )
+rownames(JI3) <- c("empiricism","rationalism","analytic",
+                          "continental","phenomenology","german_idealism",
+                          "communism","capitalism","nietzsche",
+                          "feminism","kierkegaard","hobbes","existentialism"
+                          )
+JI3
+corrplot(JI3, diag = FALSE)
+```
+It can be seen that there are schools which are pretty similar, while there are still some schools having little similarity to another such as Communism or Capitalism.
+
+As a result, we cannot conclude that different schools at the same time are concerning similar questions.
+
+## Question 3: If philosophers at different time period think about totally different questions?
+```{r,echo=FALSE}
+all_time <- c(time_period_1, time_period_2, time_period_3)
+JI_overall <- array(0, dim = c(18,18))
+for(i in 1:18){
+  for(j in 1:18){
+  JI_overall[i,j] = JI(all_time[[i]],all_time[[j]])
+  }
+}
+
+colnames(JI_overall) <- c("aristotle","plato","daoism",
+                          "scholasticism","stoicism",
+                          "empiricism","rationalism","analytic",
+                          "continental","phenomenology","german_idealism",
+                          "communism","capitalism","nietzsche",
+                          "feminism","kierkegaard","hobbes","existentialism"
+                          )
+rownames(JI_overall) <- c("aristotle","plato","daoism",
+                          "scholasticism","stoicism",
+                          "empiricism","rationalism","analytic",
+                          "continental","phenomenology","german_idealism",
+                          "communism","capitalism","nietzsche",
+                          "feminism","kierkegaard","hobbes","existentialism"
+                          )
+JI_overall
+```
+
+```{r}
+corrplot(JI_overall, diag = FALSE)
+```
+From the plot, we can see that Aristotle has greater similarity to Plato and Rationalism; Plato is pretty similar to Aristotle and Nietzsche; Stoicism has similarity to Rationalism, Nietzsche and Feminism; Nietzsche is similar to Plato, Scholasticism, Stoicism, Empiricism, Rationalism, and also Feminism.
+
+This means that even new problems appearing at a new time were discussed by the philosophers then, many questions raised by ancient philosophers are still thought about by later philosophers and the solution or explaination to them may differ as time goes by.
+
+However, this is only an analysis based on single words used in the sentences, which means that even two school with exactly different opinions may have pretty high similarity. For instance, though there appears high similarity between Feminism and Stoicism, they cannot be similar actually because Stoicism focus on the active relationship between cosmic determinism and human freedom, while Feminism is a collection of movements and ideologies that aims to define, establish, and defend equal political, economic, cultural, and social rights for women. 
+
+# Conclusion
+1. As time goes by, philosophers do rise and discuss different questions in different time period.
+
+2. At the same time, different schools may concern different questions.
+
+3. Even though human society develops, many original ideas and thoughts in ancient times are still thought about by people in later years.
+
+4. Except for time, other factors such as originating country of the schools, relationship between the schools, or focuses of thoughts of different authors in the schools should also be considered while studying the history of philosophy. So the analysis can be improved if we take the other factors into consideration.
